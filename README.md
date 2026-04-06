@@ -106,25 +106,6 @@ Select test mode:
 
 6. **Verification Performance  Test**：Specifically test the time performance of the verification process.
 
-## Technical Features
-
-1. **Input-sensitive efficiency**: Communication and verification costs depend only on the actual data items participating in the computation
-2. **Parallel computation**: Uses Rayon library to implement parallel computation for improved performance
-3. **Efficient implementation**: Optimized elliptic curve operations and polynomial calculations
-4. **Modular design**: Clear code structure for easy maintenance and extension
-5. **Comprehensive testing**: Multiple test modes covering different scenarios
-6. **Detailed performance analysis**: Provides detailed time statistics and performance metrics
-7. **Security**: Proven secure in the algebraic group model
-
-## Application Scenarios
- 
-F-PRIMO is suitable for the following scenarios:
- 
-- **Multi-owner data outsourcing**: Multiple data owners outsource data to cloud service providers
-- **Data privacy protection**: Perform computations without revealing original data
-- **Computation result verification**: Verify the correctness of computation results from cloud service providers
-- **Large-scale data analysis**: Support large-scale multi-owner outsourced data analysis
- 
 ## Security Guarantees
  
 F-PRIMO  is proven secure in the algebraic group model, ensuring:
