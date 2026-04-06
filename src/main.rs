@@ -645,22 +645,18 @@ fn run_test_with_parameters_extended(
 
 fn run_parameterized_test_proof() {
     let n_values = {
-        // vec![16384; 500]
-        vec![1024; 2]
+        vec![16384; 500]
     };
     let m_values = {
-        // vec![1024]
-        vec![512]
+        vec![1024]
     };
     
     let l_values = {
-        // vec![16]
-        vec![2]
+        vec![16]
     };
      
     let subset_ratios = {
-        // vec![512]
-        vec![64]
+        vec![512]
     };
 
     // Create shared KZG instance
@@ -775,22 +771,18 @@ fn run_parameterized_test_verify() {
     println!("This test measures verification performance specifically\n");
 
     let n_values = {
-        // vec![16384; 500]
-        vec![1024; 2]
+        vec![16384; 500]
     };
     let m_values = {
-        // vec![1024]
-        vec![512]
+        vec![1024]
     };
     
     let l_values = {
-        // vec![16]
-        vec![2]
+        vec![16]
     };
      
     let subset_ratios = {
-        // vec![512]
-        vec![64]
+        vec![512]
     };
 
     // Create shared KZG instance
