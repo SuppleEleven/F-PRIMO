@@ -40,8 +40,6 @@ lazy_static! {
 
 // Modified main function with test options
 fn main() {
-    // Reset excluded time counter
-    reset_excluded_time();
     // Record program start time
     let start_time = std::time::Instant::now();
     println!("=== CP-ZKP-MS Protocol Test System ===");
@@ -81,194 +79,36 @@ fn main() {
         }
     };
 
-    let elapsed = start_time.elapsed();
-    let excluded_time = get_excluded_time();
-    let actual_time = elapsed.checked_sub(excluded_time).unwrap_or(elapsed);
-    println!("\n=== Test System Runtime Statistics ===");
-    println!("Total runtime: {:.3} ms", elapsed.as_millis() as f64);
-    println!("Excluded time: {:.3} ms", excluded_time.as_millis() as f64);
-    println!("Actual runtime: {:.3} ms", actual_time.as_millis() as f64);
-
+    let actual_time = start_time.elapsed();
+    println!("=== Test Completed ===");
     result
 }
 
-/// Parameterized test function for user-specified parameter combinations
-fn run_parameterized_tests() {
-    println!("\n=== Parameterized Tests ===");
-    println!("Testing different parameter combinations:");
-    println!("1. n: 2^12, 2^13, 2^14, 2^15, 2^16");
-    println!("2. m (total selected elements): 2^8, 2^9, 2^10, 2^11, 2^12, 2^13, 2^14");
-    println!("3. l (vector count): 2, 3, 4, 5, 6, 7, 8, 9, 10");
-    println!("4. subset: 64, 128, 256, 512, 1024");
-    println!("1. n power 12");
-    println!("2. n power 13");
-    println!("3. n power 14");
-    println!("4. n power 15");
-    println!("5. n power 16");
-    println!("Select test mode (1, 2, 3, 4, 5):");
-
-    let mut input = String::new();
-    std::io::stdin().read_line(&mut input).expect("Failed to read input");
-
-    let n_values = {
-        match input.trim() {
-            "1" => {
-                vec![4096]
-            }
-            "2" => {
-                vec![8192]
-            }
-            "3" => {
-                vec![16384]
-            }
-            "4" => {
-                vec![32768]
-            }
-            "5" => {
-                vec![65536]
-            }
-            _ => {
-                vec![4096, 8192, 16384, 32768, 65536]
-            }
-        }
-    };
-    
-    let m_values = {
-        vec![256, 512, 1024, 2048, 4096, 8192, 16384] // 2^8, 2^9, 2^10, 2^11, 2^12, 2^13, 2^14
-    };
-    
-    let l_values = {
-        vec![2, 3, 4, 5, 6, 7, 8, 9, 10]
-    };
-     
-    let subset_ratios = {
-        vec![100, 200, 300, 400, 500, 600, 700, 800, 900, 1000]
-    };
-    
-    let test_results: Vec<Result<Duration, String>> = n_values
-        .iter()
-        .flat_map(|&n| {
-            // Create independent KZG instance for each n
-            let mut rng = thread_rng();
-            let degree = n * 8;
-            println!("Generating Structured Reference String (SRS) for n={}...", n);
-            let kzg = kzg::KZG::new(degree, &mut rng);
-            println!("n={}, degree={}", n, degree);
-
-            // Generate all valid test configurations for this n
-            let configs: Vec<_> = m_values
-                .iter()
-                .filter(|&&total_m| total_m <= n)
-                .flat_map(|&total_m| {
-                    let subset_ratios_clone = subset_ratios.clone();
-                    l_values.iter()
-                    .flat_map(move |&l| {
-                        let subset_ratios_clone2 = subset_ratios_clone.clone();
-                        subset_ratios_clone2
-                            .iter()
-                            .filter(move |&&subset_ratio| subset_ratio <= total_m)
-                            .map(move |&subset_ratio| (n, total_m, l, subset_ratio))
-                            .collect::<Vec<_>>()
-                    })
-                })
-                .collect();
-
-            println!("n={} has {} valid test configurations", n, configs.len());
-
-            configs
-                .into_iter()
-                .enumerate()
-                .map(move |(local_index, (n, total_m, l, subset_ratio))| {
-                    let m_per_vector_value = subset_ratio;
-                    let vector_len = total_m;
-                    let m_per_vector = vec![m_per_vector_value; l];
-                    println!(
-                        "\n--- Test (n={}, total_m={}, l={}, subset_ratio={}) ---",
-                        n, total_m, l, subset_ratio
-                    );
-                    run_test_with_parameters_extended(
-                        local_index + 1,
-                        n,
-                        m_per_vector,
-                        l,
-                        subset_ratio,
-                        vector_len,
-                        &kzg,
-                    )
-                })
-                .collect::<Vec<_>>()
-        })
-        .collect();
-
-    // Statistics
-    let mut total_duration = Duration::from_secs(0);
-    let mut total_tests = 0;
-
-    for (i, result) in test_results.into_iter().enumerate() {
-        match result {
-            Ok(duration) => {
-                total_duration += duration;
-                total_tests += 1;
-            }
-            Err(e) => {
-                total_tests += 1;
-            }
-        }
-        // Progress display
-        if (i + 1) % 10 == 0 {
-            println!("\n=== Progress: Completed {}/{} tests ===", i + 1, total_tests);
-        }
-    }
-
-    println!("\n=== Parameterized Tests Completed ===");
-    println!("=== Test Statistics ===");
-    println!("• Total test combinations: {}", total_tests);
-    println!("• Total test time: {:.3} ms", total_duration.as_millis() as f64);
-    println!(
-        "• Average test time: {:.3} ms",
-        if total_tests > 0 {
-            total_duration.as_millis() as f64 / total_tests as f64
-        } else {
-            0.0
-        }
-    );
-}
-
-/// Extended test function supporting subset ratio and vector length parameters
-fn run_test_with_parameters_extended(
+fn run_test_with_parameters(
     test_index: usize,
-    n: usize,
-    m_per_vector: Vec<usize>,
+    n: usize, 
+    m_per_vector: Vec<usize>, 
     l: usize,
     subset_ratio: usize,
     vector_len: usize,
-    kzg: &KZG,
+    kzg: &KZG, 
 ) -> Result<Duration, String> {
     let test_start_time = std::time::Instant::now();
-    let exclude_start = start_exclude_timer();
-
-    // Parameter validation
+    
     if m_per_vector.len() != l {
-        return Err(format!(
-            "m_per_vector length {} does not match vector count l={}",
-            m_per_vector.len(),
-            l
-        ));
+        return Err(format!("m_per_vector长度{}与向量数量l={}不匹配", m_per_vector.len(), l));
     }
-
-    // Check vector length sufficiency
     for &m_q in &m_per_vector {
         if m_q > vector_len {
-            return Err(format!(
-                "Selected element count {} exceeds vector length {}",
-                m_q, vector_len
-            ));
+            return Err(format!("选择元素数{}大于向量长度{}", m_q, vector_len));
         }
     }
 
-    // Initialize RNG
+    // Create shared KZG instance
     let mut rng = thread_rng();
-    let total_m: usize = m_per_vector.iter().sum(); // Total selected elements
+
+    let total_m: usize = m_per_vector.iter().sum(); 
+    
     let degree = n * 8; // Max polynomial degree
 
     // Step 1: Generate test vectors
@@ -411,7 +251,39 @@ fn run_test_with_parameters_extended(
         })
         .collect();
 
-    stop_exclude_timer(exclude_start);
+    let mut pi_qi = Vec::new();
+    for q in 0..l {
+        let m_q = mapping.m_q(q);
+        // Inner aggregation: Σ_{i=1}^{m_q} z^i · [π_{q,i}]_1
+        for i in 0..m_q {
+            let mapped_idx = mapping.get(q, i); // M(q,i)
+            
+            // Generate [π_{q,i}]_1 = [r_q · β^{2N+1-M(q,i)}]_1 
+            //                   + Σ_{j≠M(q,i)} [v_{q,j} · β^{N+1-M(q,i)+j}]_1
+            let mut pi_qiq = G1::zero();
+            
+            // Part 1: r_q · β^{2N+1-M(q,i)}
+            if mapped_idx > 2 * n + 1 {
+                panic!("Index overflow: mapped_idx={} > 2*N+1={}", mapped_idx, 2 * n + 1);
+            }
+            let exp1 = 2 * n + 1 - mapped_idx;
+            pi_qiq += kzg.srs.g1[exp1] * r_q[q];
+            
+            // Part 2: Σ_{j≠M(q,i)} [v_{q,j} · β^{N+1-M(q,i)+j}]_1
+            // Note: iterate over all elements of the original vector, not just the selected one
+            for (j, &v_qj) in vectors[q].iter().enumerate() {
+                if j != mapped_idx {
+                    // Safety check: ensure index calculation does not overflow
+                    if mapped_idx > n + 1 + j {
+                        panic!("Index overflow: mapped_idx={} > N+1+j={}", mapped_idx, n + 1 + j);
+                    }
+                    let exp2 = n + 1 - mapped_idx + j;
+                    pi_qiq += kzg.srs.g1[exp2] * v_qj;
+                }
+            }
+            pi_qi.push(pi_qiq);
+        }
+    }
 
     // Protocol execution
     let beta = part1::verifier_sample_beta(&mut rng);
@@ -476,6 +348,7 @@ fn run_test_with_parameters_extended(
             l,
             m_per_vector.clone(),
             r_q.clone(),
+            pi_qi.clone(),
         );
 
     let (x, delta, y_pow_n_v, y_inv_pow_n_v, z_pow_Q_plus_1_v) = part1::verifier_part2(
@@ -632,13 +505,406 @@ fn run_test_with_parameters_extended(
         proof_Wp,
     );
 
-    let elapsed = test_start_time.elapsed();
-    let excluded_time = get_excluded_time();
-    let actual_time = elapsed.checked_sub(excluded_time).unwrap_or(elapsed);
+    let actual_time = test_start_time.elapsed();
 
     println!("\n=== Test {} Runtime Statistics ===", test_index);
-    println!("Total runtime: {:.3} ms", elapsed.as_millis() as f64);
-    println!("Actual runtime: {:.3} ms", actual_time.as_millis() as f64);
+    println!("Runtime: {:.3} ms", actual_time.as_millis() as f64);
+
+    Ok(actual_time)
+}
+
+/// Parameterized test function for user-specified parameter combinations
+fn run_parameterized_tests() {
+    println!("\n=== Parameterized Tests ===");
+    println!("Testing different parameter combinations:");
+    println!("1. n: 2^12, 2^13, 2^14, 2^15, 2^16");
+    println!("2. m (total selected elements): 2^8, 2^9, 2^10, 2^11, 2^12, 2^13, 2^14");
+    println!("3. l (vector count): 2, 3, 4, 5, 6, 7, 8, 9, 10");
+    println!("4. subset: 64, 128, 256, 512, 1024");
+    println!("1. n power 12");
+    println!("2. n power 13");
+    println!("3. n power 14");
+    println!("4. n power 15");
+    println!("5. n power 16");
+    println!("Select test mode (1, 2, 3, 4, 5):");
+
+    let mut input = String::new();
+    std::io::stdin().read_line(&mut input).expect("Failed to read input");
+
+    let n_values = {
+        match input.trim() {
+            "1" => {
+                vec![4096]
+            }
+            "2" => {
+                vec![8192]
+            }
+            "3" => {
+                vec![16384]
+            }
+            "4" => {
+                vec![32768]
+            }
+            "5" => {
+                vec![65536]
+            }
+            _ => {
+                vec![4096, 8192, 16384, 32768, 65536]
+            }
+        }
+    };
+    
+    let m_values = {
+        vec![256, 512, 1024, 2048, 4096, 8192, 16384] // 2^8, 2^9, 2^10, 2^11, 2^12, 2^13, 2^14
+    };
+    
+    let l_values = {
+        vec![2, 3, 4, 5, 6, 7, 8, 9, 10]
+    };
+     
+    let subset_ratios = {
+        vec![100, 200, 300, 400, 500, 600, 700, 800, 900, 1000]
+    };
+    
+    let test_results: Vec<Result<Duration, String>> = n_values
+        .iter()
+        .flat_map(|&n| {
+            // Create independent KZG instance for each n
+            let mut rng = thread_rng();
+            let degree = n * 8;
+            println!("Generating Structured Reference String (SRS) for n={}...", n);
+            let kzg = kzg::KZG::new(degree, &mut rng);
+            println!("n={}, degree={}", n, degree);
+
+            // Generate all valid test configurations for this n
+            let configs: Vec<_> = m_values
+                .iter()
+                .filter(|&&total_m| total_m <= n)
+                .flat_map(|&total_m| {
+                    let subset_ratios_clone = subset_ratios.clone();
+                    l_values.iter()
+                    .flat_map(move |&l| {
+                        let subset_ratios_clone2 = subset_ratios_clone.clone();
+                        subset_ratios_clone2
+                            .iter()
+                            .filter(move |&&subset_ratio| subset_ratio <= total_m)
+                            .map(move |&subset_ratio| (n, total_m, l, subset_ratio))
+                            .collect::<Vec<_>>()
+                    })
+                })
+                .collect();
+
+            println!("n={} has {} valid test configurations", n, configs.len());
+
+            configs
+                .into_iter()
+                .enumerate()
+                .map(move |(local_index, (n, total_m, l, subset_ratio))| {
+                    let m_per_vector_value = subset_ratio;
+                    let vector_len = total_m;
+                    let m_per_vector = vec![m_per_vector_value; l];
+                    println!(
+                        "\n--- Test (n={}, total_m={}, l={}, subset_ratio={}) ---",
+                        n, total_m, l, subset_ratio
+                    );
+                    run_test_with_parameters(
+                        local_index + 1,
+                        n,
+                        m_per_vector,
+                        l,
+                        subset_ratio,
+                        vector_len,
+                        &kzg,
+                    )
+                })
+                .collect::<Vec<_>>()
+        })
+        .collect();
+
+    // Statistics
+    let mut total_duration = Duration::from_secs(0);
+    let mut total_tests = 0;
+
+    for (i, result) in test_results.into_iter().enumerate() {
+        match result {
+            Ok(duration) => {
+                total_duration += duration;
+                total_tests += 1;
+            }
+            Err(e) => {
+                total_tests += 1;
+            }
+        }
+        // Progress display
+        if (i + 1) % 10 == 0 {
+            println!("\n=== Progress: Completed {}/{} tests ===", i + 1, total_tests);
+        }
+    }
+
+    println!("\n=== Parameterized Tests Completed ===");
+    println!("=== Test Statistics ===");
+    println!("• Total test combinations: {}", total_tests);
+    println!("• Total test time: {:.3} ms", total_duration.as_millis() as f64);
+    println!(
+        "• Average test time: {:.3} ms",
+        if total_tests > 0 {
+            total_duration.as_millis() as f64 / total_tests as f64
+        } else {
+            0.0
+        }
+    );
+}
+
+fn run_test_with_parameters_extended(
+    test_index: usize,
+    n: usize, 
+    m_per_vector: Vec<usize>, 
+    l: usize,
+    subset_ratio: usize,
+    vector_len: usize,
+    kzg: &KZG, 
+    vectors: &Vec<Vec<Fr>>,
+    r_q: &Vec<Fr>,
+    V_q_affine: &Vec<G1Affine>,
+    mapping: &MultiVectorMapping,
+    I: Vec<usize>,
+    u: Vec<Fr>,
+    a_L: &Vec<Fr>,
+    a_R: &Vec<Fr>,
+    a_O: &Vec<Fr>,
+    W_L: &Vec<Fr>,
+    W_R: &Vec<Fr>,
+    W_O: &Vec<Fr>,
+    W_U: &Vec<Fr>,
+    c: &Vec<Fr>,
+    pi_qi: &Vec<G1>,
+) -> Result<Duration, String> {
+    let test_start_time = std::time::Instant::now();
+    let mut rng = thread_rng();
+    // Protocol execution
+    let beta = part1::verifier_sample_beta(&mut rng);
+
+    let (A_I, A_O, K, K_L, K_R, n, r1, r2, r3) = part1::prover_part1(
+        &mut rng,
+        &kzg,
+        W_L.clone(),
+        W_R.clone(),
+        W_O.clone(),
+        W_U.clone(),
+        c.clone(),
+        I.clone(),
+        &mapping,
+        a_L.clone(),
+        a_R.clone(),
+        a_O.clone(),
+        u.clone(),
+    );
+
+    let (y, z) = part1::verifier_part1(
+        &mut rng,
+        &kzg,
+        W_L.clone(),
+        W_R.clone(),
+        W_O.clone(),
+        W_U.clone(),
+        c.clone(),
+        I.clone(),
+        &mapping,
+        A_I,
+        A_O,
+        K,
+    );
+
+    let (T_vec, pi_tilde, l_poly, r_poly, theta_vec, y_pow_n_p, y_inv_pow_n_p, z_pow_Q_plus_1_p) =
+        part1::prover_part2(
+            &mut rng,
+            &kzg,
+            &vectors,
+            W_L.clone(),
+            W_R.clone(),
+            W_O.clone(),
+            W_U.clone(),
+            c.clone(),
+            I.clone(),
+            &mapping,
+            a_L.clone(),
+            a_R.clone(),
+            a_O.clone(),
+            u.clone(),
+            A_I,
+            A_O,
+            K,
+            K_L,
+            K_R,
+            y,
+            z,
+            r1,
+            r2,
+            r3,
+            l,
+            m_per_vector.clone(),
+            r_q.clone(),
+            pi_qi.clone(),
+        );
+
+    let (x, delta, y_pow_n_v, y_inv_pow_n_v, z_pow_Q_plus_1_v) = part1::verifier_part2(
+        &mut rng,
+        &kzg,
+        W_L.clone(),
+        W_R.clone(),
+        W_O.clone(),
+        W_U.clone(),
+        c.clone(),
+        I.clone(),
+        &mapping,
+        A_I,
+        A_O,
+        K,
+        y,
+        z,
+        T_vec.clone(),
+        pi_tilde,
+        n,
+    );
+
+    let (theta_vec_x, mu, l_vec, r_vec, t_tilde) = part2::prover_part1(
+        &mut rng,
+        &kzg,
+        W_L.clone(),
+        W_R.clone(),
+        W_O.clone(),
+        W_U.clone(),
+        c.clone(),
+        I.clone(),
+        &mapping,
+        a_L.clone(),
+        a_R.clone(),
+        a_O.clone(),
+        u.clone(),
+        A_I,
+        A_O,
+        K,
+        y,
+        z,
+        r1,
+        r2,
+        r3,
+        x,
+        T_vec.clone(),
+        pi_tilde,
+        l_poly.clone(),
+        r_poly.clone(),
+        theta_vec.clone(),
+    );
+
+    let x_t = part2::verifier_part1(
+        &mut rng,
+        &kzg,
+        W_L.clone(),
+        W_R.clone(),
+        W_O.clone(),
+        W_U.clone(),
+        c.clone(),
+        I.clone(),
+        &mapping,
+        A_I,
+        A_O,
+        K,
+        y,
+        z,
+        T_vec.clone(),
+        pi_tilde,
+        n,
+        x,
+        theta_vec_x,
+        mu,
+        t_tilde,
+    );
+
+    let (ipa_proof, mut transcript, commit_Wp, original_commit_Wp, val_Wp, proof_Wp) =
+        part2::prover_part2(
+            &mut rng,
+            &kzg,
+            W_L.clone(),
+            W_R.clone(),
+            W_O.clone(),
+            W_U.clone(),
+            c.clone(),
+            I.clone(),
+            &mapping,
+            a_L.clone(),
+            a_R.clone(),
+            a_O.clone(),
+            u.clone(),
+            A_I,
+            A_O,
+            K,
+            y,
+            z,
+            r1,
+            r2,
+            r3,
+            x,
+            T_vec.clone(),
+            pi_tilde,
+            l_poly.clone(),
+            r_poly.clone(),
+            theta_vec,
+            theta_vec_x,
+            mu,
+            t_tilde,
+            x_t,
+            beta,
+            z_pow_Q_plus_1_p,
+            y_pow_n_p,
+            y_inv_pow_n_p,
+            l_vec,
+            r_vec,
+        );
+
+    let verification_result = part2::verifier_part2(
+        test_index,
+        &mut rng,
+        &kzg,
+        V_q_affine.as_slice(),
+        W_L.clone(),
+        W_R.clone(),
+        W_O.clone(),
+        W_U.clone(),
+        c.clone(),
+        I.clone(),
+        &mapping,
+        A_I,
+        A_O,
+        K,
+        y,
+        z,
+        T_vec.clone(),
+        pi_tilde,
+        n,
+        delta,
+        z_pow_Q_plus_1_v,
+        x,
+        theta_vec_x,
+        mu,
+        t_tilde,
+        x_t,
+        ipa_proof,
+        y_pow_n_v,
+        y_inv_pow_n_v,
+        l,
+        m_per_vector.clone(),
+        beta,
+        commit_Wp,
+        original_commit_Wp,
+        val_Wp,
+        proof_Wp,
+    );
+
+    let actual_time = test_start_time.elapsed();
+
+    println!("\n=== Test {} Runtime Statistics ===", test_index);
+    println!("Runtime: {:.3} ms", actual_time.as_millis() as f64);
 
     Ok(actual_time)
 }
@@ -666,69 +932,256 @@ fn run_parameterized_test_proof() {
     println!("Generating SRS for n={}...", n_value);
     let kzg = kzg::KZG::new(degree, &mut rng);
     println!("n={}, degree={}", n_value, degree);
-    let kzg_arc = Arc::new(kzg);
+    let kzg_arc = Arc::new(kzg.clone());
+
+    let l = l_values[0];
+    let m_per_vector_value = subset_ratios[0];
+    let vector_len = m_values[0];
+    let m_per_vector = vec![m_per_vector_value; l];
+
+    let total_m: usize = m_per_vector.iter().sum(); // Total selected elements
+    let degree = n_value * 8; // Max polynomial degree
+
+    // Step 1: Generate test vectors
+    let vectors: Vec<Vec<Fr>> = (0..l)
+        .into_par_iter()
+        .map(|q| {
+            (0..vector_len)
+                .map(|j| Fr::from((q as u64 + 1) * 1000 + j as u64))
+                .collect()
+        })
+        .collect();
+
+    // Step 2: Generate random blinding factors for each vector
+    let r_q: Vec<Fr> = (0..l)
+        .into_par_iter()
+        .map_init(|| thread_rng(), |rng, _| Fr::rand(rng))
+        .collect();
+
+    // Step 3: Create commitments V_q for each vector
+    let V_q: Vec<G1> = (0..l)
+        .into_par_iter()
+        // .into_iter()
+        .map(|q| {
+            let mut V = G1::zero();
+            let N = n_value;
+            V += kzg.srs.g1[N] * r_q[q];
+            for j in 0..vectors[q].len() {
+                V += kzg.srs.g1[j + 1] * vectors[q][j];
+            }
+            V
+        })
+        .collect();
+
+    // Convert V_q to affine for verification
+    let V_q_affine: Vec<_> = V_q.iter().map(|v| v.into_affine()).collect();
+
+    // Step 4: Select elements and build M mapping
+    let (mappings, selected_values): (Vec<Vec<usize>>, Vec<Fr>) = (0..l)
+        .into_par_iter()
+        .map(|q| {
+            let mut available_indices: Vec<usize> = (0..vectors[q].len()).collect();
+            available_indices.shuffle(&mut thread_rng());
+
+            let mut M_q = Vec::new();
+            let mut values = Vec::new();
+            let max_count = m_per_vector[q].min(available_indices.len());
+
+            for i in 0..max_count {
+                let idx = available_indices[i];
+                M_q.push(idx);
+                values.push(vectors[q][idx]);
+            }
+
+            (M_q, values)
+        })
+        .fold(
+            || (Vec::new(), Vec::new()),
+            |(mut maps, mut vals), (map, val)| {
+                maps.push(map);
+                vals.extend(val);
+                (maps, vals)
+            }
+        )
+        .reduce(
+            || (Vec::new(), Vec::new()),
+            |(mut maps1, mut vals1), (maps2, vals2)| {
+                maps1.extend(maps2);
+                vals1.extend(vals2);
+                (maps1, vals1)
+            }
+        );
+
+    let mapping = MultiVectorMapping {
+        mappings: mappings.clone(),
+        vector_lengths: vectors.iter().map(|v| v.len()).collect(),
+    };
+
+    // Step 5: Build flattened index set I
+    let I: Vec<usize> = (0..total_m).collect();
+    // Step 6: Build flattened u vector (all selected values)
+    let u: Vec<Fr> = selected_values;
+    // Step 7: Convert 2D M mapping to 1D
+    let M_flat: Vec<usize> = mappings.iter().flatten().cloned().collect();
+
+    // Step 8: Create circuit witness (Hadamard product constraint: a_L ◦ a_R = a_O)
+    let results: Vec<(Fr, Fr, Fr)> = (0..n_value)
+        .into_par_iter()
+        .map(|_| {
+            let a_l = Fr::rand(&mut thread_rng());
+            let a_r = Fr::rand(&mut thread_rng());
+            let a_o = a_l * a_r;
+            (a_l, a_r, a_o)
+        })
+        .collect();
+    let (a_L, a_R, a_O): (Vec<Fr>, Vec<Fr>, Vec<Fr>) = results.into_iter().fold(
+        (Vec::new(), Vec::new(), Vec::new()),
+        |(mut a_l_vec, mut a_r_vec, mut a_o_vec), (a_l, a_r, a_o)| {
+            a_l_vec.push(a_l);
+            a_r_vec.push(a_r);
+            a_o_vec.push(a_o);
+            (a_l_vec, a_r_vec, a_o_vec)
+        }
+    );
+
+    // Step 9: Create circuit constraint parameters
+    let results: Vec<(Fr, Fr, Fr, Fr)> = (0..n_value)
+        .into_par_iter()
+        .map(|_| {
+            let w_l = Fr::rand(&mut thread_rng());
+            let w_r = Fr::rand(&mut thread_rng());
+            let w_o = Fr::rand(&mut thread_rng());
+            let w_u = Fr::rand(&mut thread_rng());
+            (w_l, w_r, w_o, w_u)
+        })
+        .collect();
+    let (W_L, W_R, W_O, W_U): (Vec<Fr>, Vec<Fr>, Vec<Fr>, Vec<Fr>) = results.into_iter().fold(
+        (Vec::new(), Vec::new(), Vec::new(), Vec::new()),
+        |(mut w_l_vec, mut w_r_vec, mut w_o_vec, mut w_u_vec), (w_l, w_r, w_o, w_u)| {
+            w_l_vec.push(w_l);
+            w_r_vec.push(w_r);
+            w_o_vec.push(w_o);
+            w_u_vec.push(w_u);
+            (w_l_vec, w_r_vec, w_o_vec, w_u_vec)
+        }
+    );
+
+    let c: Vec<Fr> = (0..n_value)
+        .into_par_iter()
+        .map(|i| {
+            let left = W_L[i] * a_L[i] + W_R[i] * a_R[i] + W_O[i] * a_O[i];
+            let w_u_u = if i < total_m { W_U[i] * u[i] } else { Fr::zero() };
+            left - w_u_u
+        })
+        .collect();
+
+    let mut pi_qi = Vec::new();
+    for q in 0..l {
+        let m_q = mapping.m_q(q);
+        // Inner aggregation: Σ_{i=1}^{m_q} z^i · [π_{q,i}]_1
+        for i in 0..m_q {
+            let mapped_idx = mapping.get(q, i); // M(q,i)
+            
+            // Generate [π_{q,i}]_1 = [r_q · β^{2N+1-M(q,i)}]_1 
+            //                   + Σ_{j≠M(q,i)} [v_{q,j} · β^{N+1-M(q,i)+j}]_1
+            let mut pi_qiq = G1::zero();
+            
+            // Part 1: r_q · β^{2N+1-M(q,i)}
+            if mapped_idx > 2 * n_value + 1 {
+                panic!("Index overflow: mapped_idx={} > 2*N+1={}", mapped_idx, 2 * n_value + 1);
+            }
+            let exp1 = 2 * n_value + 1 - mapped_idx;
+            pi_qiq += kzg.srs.g1[exp1] * r_q[q];
+            
+            // Part 2: Σ_{j≠M(q,i)} [v_{q,j} · β^{N+1-M(q,i)+j}]_1
+            // Note: iterate over all elements of the original vector, not just the selected one
+            for (j, &v_qj) in vectors[q].iter().enumerate() {
+                if j != mapped_idx {
+                    // Safety check: ensure index calculation does not overflow
+                    if mapped_idx > n_value + 1 + j {
+                        panic!("Index overflow: mapped_idx={} > N+1+j={}", mapped_idx, n_value + 1 + j);
+                    }
+                    let exp2 = n_value + 1 - mapped_idx + j;
+                    pi_qiq += kzg.srs.g1[exp2] * v_qj;
+                }
+            }
+            pi_qi.push(pi_qiq);
+        }
+    }
+
+    let configs: Vec<_> = m_values
+        .par_iter()
+        .filter(|&&total_m| total_m <= n_value)
+        .flat_map(|&total_m| {
+            let subset_ratios_clone = subset_ratios.clone();
+            l_values.par_iter().flat_map(move |&l| {
+                let subset_ratios_clone2 = subset_ratios_clone.clone();
+                subset_ratios_clone2
+                    .par_iter()
+                    .filter(move |&&subset_ratio| subset_ratio <= total_m)
+                    .map(move |&subset_ratio| (n_value, total_m, l, subset_ratio))
+                    .collect::<Vec<_>>()
+            })
+        })
+        .collect();
+    println!("n={} has {} valid test configurations", n_value, configs.len());
 
     let start_time = std::time::Instant::now();
-    let test_results: Vec<Result<Duration, String>> = n_values
-        .into_par_iter()
-        .flat_map(|n| {
-            let exclude_start = start_exclude_timer();
+    let test_results: Vec<Result<Duration, String>> = n_values.into_par_iter()
+        .flat_map(|n| {  
             let kzg_clone = Arc::clone(&kzg_arc);
-
-            let configs: Vec<_> = m_values
-                .par_iter()
-                .filter(|&&total_m| total_m <= n)
-                .flat_map(|&total_m| {
-                    let subset_ratios_clone = subset_ratios.clone();
-                    l_values.par_iter().flat_map(move |&l| {
-                        let subset_ratios_clone2 = subset_ratios_clone.clone();
-                        subset_ratios_clone2
-                            .par_iter()
-                            .filter(move |&&subset_ratio| subset_ratio <= total_m)
-                            .map(move |&subset_ratio| (n, total_m, l, subset_ratio))
-                            .collect::<Vec<_>>()
-                    })
-                })
-                .collect();
-
-            println!("n={} has {} valid test configurations", n, configs.len());
-            stop_exclude_timer(exclude_start);
-
-            configs
-                .into_par_iter()
+            configs.par_iter()
                 .enumerate()
-                .map(move |(local_index, (n, total_m, l, subset_ratio))| {
-                    let m_per_vector_value = subset_ratio;
-                    let vector_len = total_m;
-                    let m_per_vector = vec![m_per_vector_value; l];
-
-                    println!(
-                        "\n--- Test (n={}, total_m={}, l={}, subset_ratio={}) ---",
-                        n, total_m, l, subset_ratio
-                    );
-                    let kzg_ref = Arc::clone(&kzg_clone);
-                    run_test_with_parameters_extended(
-                        local_index + 1,
-                        n,
-                        m_per_vector,
-                        l,
-                        subset_ratio,
-                        vector_len,
-                        &*kzg_ref,
-                    )
+                .map({
+                    let m_per_vector_clone = m_per_vector.clone();
+                    let vectors_clone = vectors.clone();
+                    let r_q_clone = r_q.clone();
+                    let V_q_affine_clone = V_q_affine.clone();
+                    let mapping_clone = mapping.clone();
+                    let a_L_clone = a_L.clone();
+                    let a_R_clone = a_R.clone();
+                    let a_O_clone = a_O.clone();
+                    let W_L_clone = W_L.clone();
+                    let W_R_clone = W_R.clone();
+                    let W_O_clone = W_O.clone();
+                    let W_U_clone = W_U.clone();
+                    let c_clone = c.clone();
+                    let I_clone = I.clone();
+                    let u_clone = u.clone();
+                    let pi_qi_clone = pi_qi.clone();
+                    
+                    move |(local_index, (n, total_m, l, subset_ratio))|{
+                        let kzg_ref = Arc::clone(&kzg_clone);
+                        run_test_with_parameters_extended(
+                            local_index + 1, 
+                            *n, 
+                            m_per_vector_clone.clone(), 
+                            *l, 
+                            *subset_ratio, 
+                            vector_len, 
+                            &*kzg_ref, 
+                            &vectors_clone, 
+                            &r_q_clone, 
+                            &V_q_affine_clone, 
+                            &mapping_clone, 
+                            I_clone.clone(), 
+                            u_clone.clone(), 
+                            &a_L_clone, &a_R_clone, &a_O_clone, 
+                            &W_L_clone, &W_R_clone, &W_O_clone, &W_U_clone, 
+                            &c_clone,
+                            &pi_qi_clone
+                        )
+                    }
                 })
                 .collect::<Vec<_>>()
         })
         .collect();
 
-    let elapsed = start_time.elapsed();
-    let excluded_time = get_excluded_time();
-    let actual_time = elapsed.checked_sub(excluded_time).unwrap_or(elapsed);
+    let actual_time = start_time.elapsed();
 
     // Statistics
     let mut successful_tests = 0;
     let mut failed_tests = 0;
-    let mut total_time = 0;
     for (i, result) in test_results.into_iter().enumerate() {
         match result {
             Ok(duration) => {
@@ -736,7 +1189,6 @@ fn run_parameterized_test_proof() {
                     "✅ Test #{} completed",
                     i + 1,
                 );
-                total_time += duration.as_millis();
                 successful_tests += 1;
             }
             Err(e) => {
@@ -932,6 +1384,40 @@ fn run_parameterized_test_verify() {
         })
         .collect();
 
+    let mut pi_qi = Vec::new();
+    for q in 0..l {
+        let m_q = mapping.m_q(q);
+        // Inner aggregation: Σ_{i=1}^{m_q} z^i · [π_{q,i}]_1
+        for i in 0..m_q {
+            let mapped_idx = mapping.get(q, i); // M(q,i)
+            
+            // Generate [π_{q,i}]_1 = [r_q · β^{2N+1-M(q,i)}]_1 
+            //                   + Σ_{j≠M(q,i)} [v_{q,j} · β^{N+1-M(q,i)+j}]_1
+            let mut pi_qiq = G1::zero();
+            
+            // Part 1: r_q · β^{2N+1-M(q,i)}
+            if mapped_idx > 2 * n + 1 {
+                panic!("Index overflow: mapped_idx={} > 2*N+1={}", mapped_idx, 2 * n + 1);
+            }
+            let exp1 = 2 * n + 1 - mapped_idx;
+            pi_qiq += kzg.srs.g1[exp1] * r_q[q];
+            
+            // Part 2: Σ_{j≠M(q,i)} [v_{q,j} · β^{N+1-M(q,i)+j}]_1
+            // Note: iterate over all elements of the original vector, not just the selected one
+            for (j, &v_qj) in vectors[q].iter().enumerate() {
+                if j != mapped_idx {
+                    // Safety check: ensure index calculation does not overflow
+                    if mapped_idx > n + 1 + j {
+                        panic!("Index overflow: mapped_idx={} > N+1+j={}", mapped_idx, n + 1 + j);
+                    }
+                    let exp2 = n + 1 - mapped_idx + j;
+                    pi_qiq += kzg.srs.g1[exp2] * v_qj;
+                }
+            }
+            pi_qi.push(pi_qiq);
+        }
+    }
+
     // Protocol execution
     let beta = part1::verifier_sample_beta(&mut rng);
 
@@ -995,6 +1481,7 @@ fn run_parameterized_test_verify() {
             l,
             m_per_vector.clone(),
             r_q.clone(),
+            pi_qi.clone(),
         );
 
     let (x, delta, y_pow_n_v, y_inv_pow_n_v, z_pow_Q_plus_1_v) = part1::verifier_part2(
@@ -1216,7 +1703,6 @@ fn run_parameterized_test_verify() {
         .count();
 
     println!("\n=== Verification Time Test Results ===");
-    println!("• Total test runs: {}", num_tests);
     println!("• Total verification time: {:.3} ms", total_time.as_millis() as f64);
     println!(
         "• Fastest verification: {:.3} ms",
@@ -1630,7 +2116,7 @@ fn run_test_commitment_opt() {
 
     // Benchmark AuthVry
     let repeat = 500;
-    let startt = SystemTime::now();
+    let start = SystemTime::now();
     let vry_results: Vec<(bool, Duration)> = (0..repeat)
         .into_par_iter()
         .map(|i| {
@@ -1658,21 +2144,15 @@ fn run_test_commitment_opt() {
             (ok, elapsed)
         })
         .collect();
-
-    let elapsedt = startt.elapsed().unwrap_or(Duration::new(0, 0));
-    let (total_vry, passed) = vry_results.iter().fold(
-        (Duration::new(0, 0), 0),
-        |(total, count), (ok, elapsed)| (total + *elapsed, if *ok { count + 1 } else { count }),
-    );
+    let elapsed = start.elapsed().unwrap_or(Duration::new(0, 0));
 
     println!("=== AuthVry Runtime Statistics ===");
     println!("Database size: {}", db_size);
-    println!("Total time: {:.3} ms", total_vry.as_millis() as f64);
+    println!("Total time: {:.3} ms", elapsed.as_millis() as f64);
     println!(
         "Average AuthVry time: {:.3} ms",
-        elapsedt.as_millis() as f64 / repeat as f64
+        elapsed.as_millis() as f64 / repeat as f64
     );
-    println!("=== Test Completed ===");
 }
 
 /// Generate random scalar field element

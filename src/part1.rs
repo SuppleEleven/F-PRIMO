@@ -153,7 +153,8 @@ pub fn prover_part2<R: RngCore>(
     r3: Fr,
     l: usize,                   
     m_per_vector: Vec<usize>, 
-    r_q: Vec<Fr>,         
+    r_q: Vec<Fr>,   
+    pi_qi: Vec<G1>,      
 ) -> (
     Vec<CommitmentG1>, 
     CommitmentG1, 
@@ -301,8 +302,6 @@ pub fn prover_part2<R: RngCore>(
         }
     }
     let N = n;
-    // Start verification timer
-    let verification_start = std::time::Instant::now();
     let ((T_vec, theta_vec), pi_tilde): ((Vec<CommitmentG1>, Vec<Fr>), G1) = rayon::join(
         || {
             // Step 10: Construct [T_i]_T commitments
@@ -337,53 +336,17 @@ pub fn prover_part2<R: RngCore>(
                 
                 // Inner aggregation: Σ_{i=1}^{m_q} z^i · [π_{q,i}]_1
                 for i in 0..m_q {
-                    let exclude_start = start_exclude_timer();
-
-                    let mapped_idx = mapping.get(q, i); // M(q,i)
-                    
-                    // Generate [π_{q,i}]_1 = [r_q · β^{2N+1-M(q,i)}]_1 
-                    //                   + Σ_{j≠M(q,i)} [v_{q,j} · β^{N+1-M(q,i)+j}]_1
-                    let mut pi_qi = G1::zero();
-                    
-                    // Part 1: r_q · β^{2N+1-M(q,i)}
-                    if mapped_idx > 2 * N + 1 {
-                        panic!("Index overflow: mapped_idx={} > 2*N+1={}", mapped_idx, 2 * N + 1);
-                    }
-                    let exp1 = 2 * N + 1 - mapped_idx;
-                    pi_qi += kzg.srs.g1[exp1] * r_q[q];
-                    
-                    // Part 2: Σ_{j≠M(q,i)} [v_{q,j} · β^{N+1-M(q,i)+j}]_1
-                    // Note: iterate over all elements of the original vector, not just the selected one
-                    for (j, &v_qj) in values[q].iter().enumerate() {
-                        if j != mapped_idx {
-                            // Safety check: ensure index calculation does not overflow
-                            if mapped_idx > N + 1 + j {
-                                panic!("Index overflow: mapped_idx={} > N+1+j={}", mapped_idx, N + 1 + j);
-                            }
-                            let exp2 = N + 1 - mapped_idx + j;
-                            pi_qi += kzg.srs.g1[exp2] * v_qj;
-                        }
-                    }
-                    
-                    stop_exclude_timer(exclude_start);
-                    
                     // Multiply by z^i and accumulate (note: paper uses z^i, i starting from 1)
-                    pi_tilde_q += pi_qi * z_pows[i];
+                    pi_tilde_q += pi_qi[q] * z_pows[i];
                 }
                 
                 // Outer aggregation: multiply by z^{s(q)} and add to total proof
                 let z_s_q = z.pow([s_q_values[q] as u64]);
                 pi_tilde += pi_tilde_q * z_s_q;
             }
-            
             pi_tilde
         }
     );
-
-    // End verification timer
-    let verification_duration = verification_start.elapsed();
-    println!("Excluded timing module - duration: {:.3} ms", verification_duration.as_millis() as f64);
-    
         (T_vec, 
          pi_tilde.into_affine(),
          l_poly_coeffs,
