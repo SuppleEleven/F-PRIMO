@@ -56,7 +56,7 @@ Using CP-ZKP-MS, we propose an efficient instantiation of F-PRIMO that supports 
 1. **Clone the Project**
 
 ```bash
-git clone <repository-url>
+git clone https://github.com/SuppleEleven/F-PRIMO.git
 cd F-PRIMO
 ```
 
