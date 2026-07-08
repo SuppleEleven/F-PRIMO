@@ -54,7 +54,7 @@ pub fn prover_part1<R: RngCore>(
     assert_eq!(n, W_L.len(), "W_L length does not match a_L");
     assert_eq!(n, W_R.len(), "W_R length does not match a_L");
     assert_eq!(n, W_O.len(), "W_O length does not match a_L");
-    let N = n;
+    let N = 1048576;
     let r1 = Fr::rand(rng);
     let r2 = Fr::rand(rng);
     let r3 = Fr::rand(rng);
@@ -301,7 +301,7 @@ pub fn prover_part2<R: RngCore>(
             precomputed_thetas.push(Fr::rand(rng));
         }
     }
-    let N = n;
+    let N = 1048576;
     let ((T_vec, theta_vec), pi_tilde): ((Vec<CommitmentG1>, Vec<Fr>), G1) = rayon::join(
         || {
             // Step 10: Construct [T_i]_T commitments

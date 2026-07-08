@@ -152,7 +152,7 @@ pub fn prover_part2<R: Rng>(
     r_vec: Vec<Fr>, 
 ) -> (InnerProductProof, Transcript, Vec<CommitmentG1>, Vec<CommitmentG1>, Vec<Fr>, Vec<G1>) {
     let n = a_L.len();
-    let N = n;
+    let N = 1048576;
     let Q = W_L.len(); 
     
     // Step 1: Construct w_L, w_R, w_O
@@ -321,7 +321,7 @@ pub fn verifier_part2<R: Rng>(
     val_Wp: Vec<Fr>,
     proof_Wp: Vec<G1>,
 ) -> bool{
-    let N = n;
+    let N = 1048576;
 
     let mut x_pows: VecFr = Vec::with_capacity(7);
     for i in 0..7 {
@@ -617,7 +617,7 @@ pub fn verifier_part2_stage1<R: Rng>(
     val_Wp: Vec<Fr>,
     proof_Wp: Vec<G1>,
 ) -> Result<G1, &'static str> {
-    let N = n;
+    let N = 1048576;
 
     let mut x_pows: VecFr = Vec::with_capacity(7);
     for i in 0..7 {
@@ -737,7 +737,7 @@ pub fn verifier_part2_stage2<R: Rng>(
     l: usize, 
     P_prime: G1,
 ) -> bool{
-    let N = n;
+    let N = 1048576;
 
     let mut x_pows: VecFr = Vec::with_capacity(7);
     for i in 0..7 {

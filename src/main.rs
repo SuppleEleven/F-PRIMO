@@ -33,7 +33,8 @@ mod utils;
 // Global thread pool configuration
 lazy_static! {
     static ref THREAD_POOL: rayon::ThreadPool = rayon::ThreadPoolBuilder::new()
-        .num_threads(num_cpus::get())
+        // .num_threads(num_cpus::get())
+        .num_threads(16) 
         .build()
         .unwrap();
 }
@@ -96,11 +97,11 @@ fn run_test_with_parameters(
     let test_start_time = std::time::Instant::now();
     
     if m_per_vector.len() != l {
-        return Err(format!("m_per_vector长度{}与向量数量l={}不匹配", m_per_vector.len(), l));
+        return Err(format!("m_per_vector length {} doesn't match the number of vectors l={}", m_per_vector.len(), l));
     }
     for &m_q in &m_per_vector {
         if m_q > vector_len {
-            return Err(format!("选择元素数{}大于向量长度{}", m_q, vector_len));
+            return Err(format!("Selected element count {} exceeds vector length {}", m_q, vector_len));
         }
     }
 
@@ -108,8 +109,8 @@ fn run_test_with_parameters(
     let mut rng = thread_rng();
 
     let total_m: usize = m_per_vector.iter().sum(); 
-    
-    let degree = n * 8; // Max polynomial degree
+    let N = 1048576;
+    let degree = N * 8; // Max polynomial degree
 
     // Step 1: Generate test vectors
     let vectors: Vec<Vec<Fr>> = (0..l)
@@ -133,7 +134,7 @@ fn run_test_with_parameters(
         .into_iter()
         .map(|q| {
             let mut V = G1::zero();
-            let N = n;
+            let N = 1048576;
             V += kzg.srs.g1[N] * r_q[q];
             for j in 0..vectors[q].len() {
                 V += kzg.srs.g1[j + 1] * vectors[q][j];
@@ -263,10 +264,10 @@ fn run_test_with_parameters(
             let mut pi_qiq = G1::zero();
             
             // Part 1: r_q · β^{2N+1-M(q,i)}
-            if mapped_idx > 2 * n + 1 {
-                panic!("Index overflow: mapped_idx={} > 2*N+1={}", mapped_idx, 2 * n + 1);
+            if mapped_idx > 2 * N + 1 {
+                panic!("Index overflow: mapped_idx={} > 2*N+1={}", mapped_idx, 2 * N + 1);
             }
-            let exp1 = 2 * n + 1 - mapped_idx;
+            let exp1 = 2 * N + 1 - mapped_idx;
             pi_qiq += kzg.srs.g1[exp1] * r_q[q];
             
             // Part 2: Σ_{j≠M(q,i)} [v_{q,j} · β^{N+1-M(q,i)+j}]_1
@@ -274,10 +275,10 @@ fn run_test_with_parameters(
             for (j, &v_qj) in vectors[q].iter().enumerate() {
                 if j != mapped_idx {
                     // Safety check: ensure index calculation does not overflow
-                    if mapped_idx > n + 1 + j {
-                        panic!("Index overflow: mapped_idx={} > N+1+j={}", mapped_idx, n + 1 + j);
+                    if mapped_idx > N + 1 + j {
+                        panic!("Index overflow: mapped_idx={} > N+1+j={}", mapped_idx, N + 1 + j);
                     }
-                    let exp2 = n + 1 - mapped_idx + j;
+                    let exp2 = N + 1 - mapped_idx + j;
                     pi_qiq += kzg.srs.g1[exp2] * v_qj;
                 }
             }
@@ -571,15 +572,18 @@ fn run_parameterized_tests() {
         .flat_map(|&n| {
             // Create independent KZG instance for each n
             let mut rng = thread_rng();
-            let degree = n * 8;
+            let N = 1048576;
+            let degree = N * 8;
             println!("Generating Structured Reference String (SRS) for n={}...", n);
-            let kzg = kzg::KZG::new(degree, &mut rng);
+            // let kzg = kzg::KZG::new(degree, &mut rng);   
+            let cache_path = format!("kzg_cache/kzg_{}.dat", degree);
+            let kzg = kzg::KZG::load_or_create(degree, &mut rng, &cache_path);
             println!("n={}, degree={}", n, degree);
 
             // Generate all valid test configurations for this n
             let configs: Vec<_> = m_values
                 .iter()
-                .filter(|&&total_m| total_m <= n)
+                .filter(|&&total_m| total_m <= N)
                 .flat_map(|&total_m| {
                     let subset_ratios_clone = subset_ratios.clone();
                     l_values.iter()
@@ -928,9 +932,12 @@ fn run_parameterized_test_proof() {
     // Create shared KZG instance
     let mut rng = thread_rng();
     let n_value = n_values[0];
-    let degree = n_value * 8;
+    let N = 1048576; 
+    let degree = N * 8;// Max polynomial degree
     println!("Generating SRS for n={}...", n_value);
-    let kzg = kzg::KZG::new(degree, &mut rng);
+    // let kzg = kzg::KZG::new(degree, &mut rng);
+    let cache_path = format!("kzg_cache/kzg_{}.dat", degree);
+    let kzg = kzg::KZG::load_or_create(degree, &mut rng, &cache_path);
     println!("n={}, degree={}", n_value, degree);
     let kzg_arc = Arc::new(kzg.clone());
 
@@ -940,12 +947,11 @@ fn run_parameterized_test_proof() {
     let m_per_vector = vec![m_per_vector_value; l];
 
     let total_m: usize = m_per_vector.iter().sum(); // Total selected elements
-    let degree = n_value * 8; // Max polynomial degree
 
     // Step 1: Generate test vectors
     let vectors: Vec<Vec<Fr>> = (0..l)
         .into_par_iter()
-        .map(|q| {
+        .map(move |q| {
             (0..vector_len)
                 .map(|j| Fr::from((q as u64 + 1) * 1000 + j as u64))
                 .collect()
@@ -964,7 +970,7 @@ fn run_parameterized_test_proof() {
         // .into_iter()
         .map(|q| {
             let mut V = G1::zero();
-            let N = n_value;
+            let N = 1048576;
             V += kzg.srs.g1[N] * r_q[q];
             for j in 0..vectors[q].len() {
                 V += kzg.srs.g1[j + 1] * vectors[q][j];
@@ -1087,10 +1093,10 @@ fn run_parameterized_test_proof() {
             let mut pi_qiq = G1::zero();
             
             // Part 1: r_q · β^{2N+1-M(q,i)}
-            if mapped_idx > 2 * n_value + 1 {
-                panic!("Index overflow: mapped_idx={} > 2*N+1={}", mapped_idx, 2 * n_value + 1);
+            if mapped_idx > 2 * N + 1 {
+                panic!("Index overflow: mapped_idx={} > 2*N+1={}", mapped_idx, 2 * N + 1);
             }
-            let exp1 = 2 * n_value + 1 - mapped_idx;
+            let exp1 = 2 * N + 1 - mapped_idx;
             pi_qiq += kzg.srs.g1[exp1] * r_q[q];
             
             // Part 2: Σ_{j≠M(q,i)} [v_{q,j} · β^{N+1-M(q,i)+j}]_1
@@ -1098,10 +1104,10 @@ fn run_parameterized_test_proof() {
             for (j, &v_qj) in vectors[q].iter().enumerate() {
                 if j != mapped_idx {
                     // Safety check: ensure index calculation does not overflow
-                    if mapped_idx > n_value + 1 + j {
-                        panic!("Index overflow: mapped_idx={} > N+1+j={}", mapped_idx, n_value + 1 + j);
+                    if mapped_idx > N + 1 + j {
+                        panic!("Index overflow: mapped_idx={} > N+1+j={}", mapped_idx, N + 1 + j);
                     }
-                    let exp2 = n_value + 1 - mapped_idx + j;
+                    let exp2 = N + 1 - mapped_idx + j;
                     pi_qiq += kzg.srs.g1[exp2] * v_qj;
                 }
             }
@@ -1111,7 +1117,7 @@ fn run_parameterized_test_proof() {
 
     let configs: Vec<_> = m_values
         .par_iter()
-        .filter(|&&total_m| total_m <= n_value)
+        .filter(|&&total_m| total_m <= N)
         .flat_map(|&total_m| {
             let subset_ratios_clone = subset_ratios.clone();
             l_values.par_iter().flat_map(move |&l| {
@@ -1240,9 +1246,12 @@ fn run_parameterized_test_verify() {
     // Create shared KZG instance
     let mut rng = thread_rng();
     let n_value = n_values[0];
-    let degree = n_value * 8;
+    let N = 1048576; 
+    let degree = N * 8;
     println!("Generating SRS for n={}...", n_value);
-    let kzg = kzg::KZG::new(degree, &mut rng);
+    // let kzg = kzg::KZG::new(degree, &mut rng);
+    let cache_path = format!("kzg_cache/kzg_{}.dat", degree);
+    let kzg = kzg::KZG::load_or_create(degree, &mut rng, &cache_path);
     println!("n={}, degree={}", n_value, degree);
 
     let m_per_vector_value = subset_ratios[0];
@@ -1278,7 +1287,7 @@ fn run_parameterized_test_verify() {
         .into_par_iter()
         .map(|q| {
             let mut V = G1::zero();
-            let N = n;
+            let N = 1048576; 
             V += kzg.srs.g1[N] * r_q[q];
             for j in 0..vectors[q].len() {
                 V += kzg.srs.g1[j + 1] * vectors[q][j];
@@ -1396,10 +1405,10 @@ fn run_parameterized_test_verify() {
             let mut pi_qiq = G1::zero();
             
             // Part 1: r_q · β^{2N+1-M(q,i)}
-            if mapped_idx > 2 * n + 1 {
-                panic!("Index overflow: mapped_idx={} > 2*N+1={}", mapped_idx, 2 * n + 1);
+            if mapped_idx > 2 * N + 1 {
+                panic!("Index overflow: mapped_idx={} > 2*N+1={}", mapped_idx, 2 * N + 1);
             }
-            let exp1 = 2 * n + 1 - mapped_idx;
+            let exp1 = 2 * N + 1 - mapped_idx;
             pi_qiq += kzg.srs.g1[exp1] * r_q[q];
             
             // Part 2: Σ_{j≠M(q,i)} [v_{q,j} · β^{N+1-M(q,i)+j}]_1
@@ -1407,10 +1416,10 @@ fn run_parameterized_test_verify() {
             for (j, &v_qj) in vectors[q].iter().enumerate() {
                 if j != mapped_idx {
                     // Safety check: ensure index calculation does not overflow
-                    if mapped_idx > n + 1 + j {
-                        panic!("Index overflow: mapped_idx={} > N+1+j={}", mapped_idx, n + 1 + j);
+                    if mapped_idx > N + 1 + j {
+                        panic!("Index overflow: mapped_idx={} > N+1+j={}", mapped_idx, N + 1 + j);
                     }
-                    let exp2 = n + 1 - mapped_idx + j;
+                    let exp2 = N + 1 - mapped_idx + j;
                     pi_qiq += kzg.srs.g1[exp2] * v_qj;
                 }
             }
@@ -1868,7 +1877,9 @@ fn run_test_commitment() {
     let N = vector_len;
     let degree = vector_len * 2;
     println!("Generating Structured Reference String (SRS)...");
-    let kzg = kzg::KZG::new(degree, &mut rng);
+    // let kzg = kzg::KZG::new(degree, &mut rng);
+    let cache_path = format!("kzg_cache/kzg_{}.dat", degree);
+    let kzg = kzg::KZG::load_or_create(degree, &mut rng, &cache_path);
 
     // Create test vector
     let vector: Vec<Fr> = (0..vector_len).map(|j| Fr::from(j as u64 + 1)).collect();
@@ -1926,7 +1937,9 @@ fn run_test_commitment_opt() {
     println!("Generating SRS... (degree={})", degree);
 
     let setup_time = std::time::Instant::now();
-    let kzg = kzg::KZG::new(degree, &mut rng);
+    // let kzg = kzg::KZG::new(degree, &mut rng);
+    let cache_path = format!("kzg_cache/kzg_{}.dat", degree);
+    let kzg = kzg::KZG::load_or_create(degree, &mut rng, &cache_path);
     println!(
         "SRS generation complete, time: {:.3} ms",
         setup_time.elapsed().as_millis() as f64

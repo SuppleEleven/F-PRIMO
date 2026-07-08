@@ -1,13 +1,17 @@
 use crate::utils::*;
 use ark_poly::{univariate::DensePolynomial, Polynomial, DenseUVPolynomial};
 use ark_std::{rand::Rng, vec::Vec, Zero, One, UniformRand};
-use ark_bn254::{G1Projective as G1, G2Projective as G2, Bn254, Fr};
+use ark_bn254::{G1Projective as G1, G2Projective as G2, G1Affine, G2Affine, Bn254, Fr};
 use ark_ec::{short_weierstrass::Projective, CurveGroup, Group, AffineRepr};
 use ark_ec::pairing::Pairing;
-use ark_serialize::CanonicalSerialize; 
+use ark_serialize::{CanonicalSerialize, CanonicalDeserialize, SerializationError, Compress, Validate, Valid};
 use ark_ff::PrimeField; 
 use std::ops::{Mul, Sub};
 use sha2::{Sha256, Digest};
+use std::fs;
+use std::fs::File;
+use std::io::{Read, Write};
+use std::path::Path;
 
 /// Structured Reference String (SRS) for KZG polynomial commitments
 #[derive(Clone, Debug)]
@@ -274,6 +278,118 @@ impl KZG {
         self.commit(&poly_coeffs)
     }
 
+    /// Load KZG instance from file
+    pub fn load_from_file(path: &str) -> Result<Self, String> {
+        let path = Path::new(path);
+        if !path.exists() {
+            return Err(format!("File does not exist: {}", path.display()));
+        }
+        let mut file = File::open(path).map_err(|e| format!("Failed to open file: {}", e))?;
+        let mut bytes = Vec::new();
+        file.read_to_end(&mut bytes).map_err(|e| format!("Failed to read file: {}", e))?;
+        let srs = SRS::deserialize_compressed(&mut &bytes[..])
+            .map_err(|e| format!("Failed to deserialize SRS: {}", e))?;
+        let degree = srs.g1.len() - 1;
+        Ok(KZG { srs, degree })
+    }
+
+    /// Save KZG instance to file
+    pub fn save_to_file(&self, path: &str) -> Result<(), String> {
+        let path = Path::new(path);
+        if let Some(parent) = path.parent() {
+            fs::create_dir_all(parent).map_err(|e| format!("Failed to create directory: {}", e))?;
+        }
+        let mut file = File::create(path).map_err(|e| format!("Failed to create file: {}", e))?;
+        let mut bytes = Vec::new();
+        self.srs.serialize_compressed(&mut bytes)
+            .map_err(|e| format!("Failed to serialize SRS: {}", e))?;
+        file.write_all(&bytes).map_err(|e| format!("Failed to write file: {}", e))?;
+        Ok(())
+    }
+
+    /// Try to load KZG from file; generate and persist new parameters if missing
+    pub fn load_or_create(degree: usize, rng: &mut impl Rng, cache_path: &str) -> Self {
+        match Self::load_from_file(cache_path) {
+            Ok(kzg) => {
+                if kzg.degree >= degree {
+                    println!("Loaded KZG parameters from cache (degree={})", kzg.degree);
+                    return kzg;
+                } else {
+                    println!("Cached KZG degree={} insufficient, required degree={}, regenerating...", kzg.degree, degree);
+                }
+            }
+            Err(e) => {
+                println!("Failed to load cached KZG parameters ({}), generating new ones...", e);
+            }
+        }
+        println!("Generating KZG parameters (degree={})...", degree);
+        let kzg = Self::new(degree, rng);
+        if let Err(e) = kzg.save_to_file(cache_path) {
+            println!("Warning: Failed to save KZG parameters: {}", e);
+        } else {
+            println!("KZG parameters saved to {}", cache_path);
+        }
+        kzg
+    }
+}
+
+impl CanonicalSerialize for SRS {
+    fn serialize_with_mode<W: Write>(&self, mut writer: W, compress: Compress) -> Result<(), SerializationError> {
+        (self.g1.len() as u64).serialize_with_mode(&mut writer, compress)?;
+        for g in &self.g1 {
+            g.into_affine().serialize_with_mode(&mut writer, compress)?;
+        }
+        (self.g2.len() as u64).serialize_with_mode(&mut writer, compress)?;
+        for g in &self.g2 {
+            g.into_affine().serialize_with_mode(&mut writer, compress)?;
+        }
+        self.g1_alpha.into_affine().serialize_with_mode(&mut writer, compress)?;
+        self.g2_alpha.into_affine().serialize_with_mode(&mut writer, compress)?;
+        self.sum_beta.into_affine().serialize_with_mode(&mut writer, compress)
+    }
+    
+    fn serialized_size(&self, compress: Compress) -> usize {
+        let mut size = 8; // u64 length
+        if !self.g1.is_empty() {
+            size += self.g1.len() * self.g1[0].into_affine().serialized_size(compress);
+        }
+        size += 8; // u64 length
+        if !self.g2.is_empty() {
+            size += self.g2.len() * self.g2[0].into_affine().serialized_size(compress);
+        }
+        size += self.g1_alpha.into_affine().serialized_size(compress); // g1_alpha
+        size += self.g2_alpha.into_affine().serialized_size(compress); // g2_alpha
+        size += self.sum_beta.into_affine().serialized_size(compress); // sum_beta
+        size
+    }
+}
+
+impl Valid for SRS {
+    fn check(&self) -> Result<(), SerializationError> {
+        Ok(())
+    }
+}
+
+impl CanonicalDeserialize for SRS {
+    fn deserialize_with_mode<R: Read>(mut reader: R, compress: Compress, _validate: Validate) -> Result<Self, SerializationError> {
+        let g1_len: u64 = CanonicalDeserialize::deserialize_with_mode(&mut reader, compress, Validate::No)?;
+        let mut g1 = Vec::with_capacity(g1_len as usize);
+        for _ in 0..g1_len {
+            let affine = G1Affine::deserialize_with_mode(&mut reader, compress, Validate::No)?;
+            g1.push(G1::from(affine));
+        }
+        let g2_len: u64 = CanonicalDeserialize::deserialize_with_mode(&mut reader, compress, Validate::No)?;
+        let mut g2 = Vec::with_capacity(g2_len as usize);
+        for _ in 0..g2_len {
+            let affine = G2Affine::deserialize_with_mode(&mut reader, compress, Validate::No)?;
+            g2.push(G2::from(affine));
+        }
+        let g1_alpha = G1::from(G1Affine::deserialize_with_mode(&mut reader, compress, Validate::No)?);
+        let g2_alpha = G2::from(G2Affine::deserialize_with_mode(&mut reader, compress, Validate::No)?);
+        let sum_beta = G1::from(G1Affine::deserialize_with_mode(&mut reader, compress, Validate::No)?);
+        
+        Ok(SRS { g1, g2, g1_alpha, g2_alpha, sum_beta })
+    }
 }
 
 /// Batch commitment for multiple vectors
